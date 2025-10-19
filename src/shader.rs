@@ -22,18 +22,32 @@ impl Shader {
     pub fn new(vertexPath: &str, fragmentPath: &str) -> Shader {
         let mut shader = Shader { ID: 0 };
         // 1. retrieve the vertex/fragment source code from filesystem
-        let mut vShaderFile = File::open(vertexPath)
-            .unwrap_or_else(|_| panic!("Failed to open {}", vertexPath));
-        let mut fShaderFile = File::open(fragmentPath)
-            .unwrap_or_else(|_| panic!("Failed to open {}", fragmentPath));
-        let mut vertexCode = String::new();
-        let mut fragmentCode = String::new();
-        vShaderFile
-            .read_to_string(&mut vertexCode)
-            .expect("Failed to read vertex shader");
-        fShaderFile
-            .read_to_string(&mut fragmentCode)
-            .expect("Failed to read fragment shader");
+        #[cfg(not(target_arch = "wasm32"))]
+        let (vertexCode, fragmentCode) = {
+            let mut vShaderFile = File::open(vertexPath)
+                .unwrap_or_else(|_| panic!("Failed to open {}", vertexPath));
+            let mut fShaderFile = File::open(fragmentPath)
+                .unwrap_or_else(|_| panic!("Failed to open {}", fragmentPath));
+            let mut vertexCode = String::new();
+            let mut fragmentCode = String::new();
+            vShaderFile
+                .read_to_string(&mut vertexCode)
+                .expect("Failed to read vertex shader");
+            fShaderFile
+                .read_to_string(&mut fragmentCode)
+                .expect("Failed to read fragment shader");
+            (vertexCode, fragmentCode)
+        };
+        
+        #[cfg(target_arch = "wasm32")]
+        let (vertexCode, fragmentCode) = {
+            use gl::resources::load_string_sync;
+            let vertexCode = load_string_sync(vertexPath)
+                .unwrap_or_else(|e| panic!("{}", e));
+            let fragmentCode = load_string_sync(fragmentPath)
+                .unwrap_or_else(|e| panic!("{}", e));
+            (vertexCode, fragmentCode)
+        };
 
         let vShaderCode = CString::new(vertexCode.as_bytes()).unwrap();
         let fShaderCode = CString::new(fragmentCode.as_bytes()).unwrap();
@@ -130,24 +144,40 @@ impl Shader {
     pub fn with_geometry_shader(vertexPath: &str, fragmentPath: &str, geometryPath: &str) -> Self {
         let mut shader = Shader { ID: 0 };
         // 1. retrieve the vertex/fragment source code from filesystem
-        let mut vShaderFile = File::open(vertexPath)
-            .unwrap_or_else(|_| panic!("Failed to open {}", vertexPath));
-        let mut fShaderFile = File::open(fragmentPath)
-            .unwrap_or_else(|_| panic!("Failed to open {}", fragmentPath));
-        let mut gShaderFile = File::open(geometryPath)
-            .unwrap_or_else(|_| panic!("Failed to open {}", geometryPath));
-        let mut vertexCode = String::new();
-        let mut fragmentCode = String::new();
-        let mut geometryCode = String::new();
-        vShaderFile
-            .read_to_string(&mut vertexCode)
-            .expect("Failed to read vertex shader");
-        fShaderFile
-            .read_to_string(&mut fragmentCode)
-            .expect("Failed to read fragment shader");
-        gShaderFile
-            .read_to_string(&mut geometryCode)
-            .expect("Failed to read geometry shader");
+        #[cfg(not(target_arch = "wasm32"))]
+        let (vertexCode, fragmentCode, geometryCode) = {
+            let mut vShaderFile = File::open(vertexPath)
+                .unwrap_or_else(|_| panic!("Failed to open {}", vertexPath));
+            let mut fShaderFile = File::open(fragmentPath)
+                .unwrap_or_else(|_| panic!("Failed to open {}", fragmentPath));
+            let mut gShaderFile = File::open(geometryPath)
+                .unwrap_or_else(|_| panic!("Failed to open {}", geometryPath));
+            let mut vertexCode = String::new();
+            let mut fragmentCode = String::new();
+            let mut geometryCode = String::new();
+            vShaderFile
+                .read_to_string(&mut vertexCode)
+                .expect("Failed to read vertex shader");
+            fShaderFile
+                .read_to_string(&mut fragmentCode)
+                .expect("Failed to read fragment shader");
+            gShaderFile
+                .read_to_string(&mut geometryCode)
+                .expect("Failed to read geometry shader");
+            (vertexCode, fragmentCode, geometryCode)
+        };
+        
+        #[cfg(target_arch = "wasm32")]
+        let (vertexCode, fragmentCode, geometryCode) = {
+            use gl::resources::load_string_sync;
+            let vertexCode = load_string_sync(vertexPath)
+                .unwrap_or_else(|e| panic!("{}", e));
+            let fragmentCode = load_string_sync(fragmentPath)
+                .unwrap_or_else(|e| panic!("{}", e));
+            let geometryCode = load_string_sync(geometryPath)
+                .unwrap_or_else(|e| panic!("{}", e));
+            (vertexCode, fragmentCode, geometryCode)
+        };
 
         let vShaderCode = CString::new(vertexCode.as_bytes()).unwrap();
         let fShaderCode = CString::new(fragmentCode.as_bytes()).unwrap();
