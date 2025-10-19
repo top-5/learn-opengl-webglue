@@ -75,7 +75,7 @@ pub fn main_1_3_2() {
         infoLog.set_len(512 - 1); // subtract 1 to skip the trailing null character
         if success != gl::TRUE as GLint {
             gl::GetShaderInfoLog(vertexShader, 512, ptr::null_mut(), infoLog.as_mut_ptr() as *mut GLchar);
-            println!("ERROR::SHADER::VERTEX::COMPILATION_FAILED\n{}", str::from_utf8(&infoLog).unwrap());
+            println!("ERROR::SHADER::VERTEX::COMPILATION_FAILED\n{}", String::from_utf8_lossy(&infoLog));
         }
 
         // fragment shader
@@ -87,7 +87,7 @@ pub fn main_1_3_2() {
         gl::GetShaderiv(fragmentShader, gl::COMPILE_STATUS, &mut success);
         if success != gl::TRUE as GLint {
             gl::GetShaderInfoLog(fragmentShader, 512, ptr::null_mut(), infoLog.as_mut_ptr() as *mut GLchar);
-            println!("ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n{}", str::from_utf8(&infoLog).unwrap());
+            println!("ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n{}", String::from_utf8_lossy(&infoLog));
         }
 
         // link shaders
@@ -99,7 +99,7 @@ pub fn main_1_3_2() {
         gl::GetProgramiv(shaderProgram, gl::LINK_STATUS, &mut success);
         if success != gl::TRUE as GLint {
             gl::GetProgramInfoLog(shaderProgram, 512, ptr::null_mut(), infoLog.as_mut_ptr() as *mut GLchar);
-            println!("ERROR::SHADER::PROGRAM::COMPILATION_FAILED\n{}", str::from_utf8(&infoLog).unwrap());
+            println!("ERROR::SHADER::PROGRAM::COMPILATION_FAILED\n{}", String::from_utf8_lossy(&infoLog));
         }
         gl::DeleteShader(vertexShader);
         gl::DeleteShader(fragmentShader);

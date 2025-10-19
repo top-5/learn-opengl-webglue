@@ -160,27 +160,33 @@ impl Shader {
             gl::ShaderSource(vertex, 1, &vShaderCode.as_ptr(), ptr::null());
             gl::CompileShader(vertex);
             shader.checkCompileErrors(vertex, "VERTEX");
-            // fragment Shader
+                // fragment Shader
             let fragment = gl::CreateShader(gl::FRAGMENT_SHADER);
             gl::ShaderSource(fragment, 1, &fShaderCode.as_ptr(), ptr::null());
             gl::CompileShader(fragment);
             shader.checkCompileErrors(fragment, "FRAGMENT");
-            // geometry shader
-            let geometry = gl::CreateShader(gl::GEOMETRY_SHADER);
-            gl::ShaderSource(geometry, 1, &gShaderCode.as_ptr(), ptr::null());
-            gl::CompileShader(geometry);
-            shader.checkCompileErrors(geometry, "GEOMETRY");
+                // geometry shader
+                #[cfg(not(target_arch = "wasm32"))]
+                let geometry = gl::CreateShader(gl::GEOMETRY_SHADER);
+                #[cfg(not(target_arch = "wasm32"))]
+                gl::ShaderSource(geometry, 1, &gShaderCode.as_ptr(), ptr::null());
+                #[cfg(not(target_arch = "wasm32"))]
+                gl::CompileShader(geometry);
+                #[cfg(not(target_arch = "wasm32"))]
+                shader.checkCompileErrors(geometry, "GEOMETRY");
 
             // shader Program
             let ID = gl::CreateProgram();
             gl::AttachShader(ID, vertex);
             gl::AttachShader(ID, fragment);
+                #[cfg(not(target_arch = "wasm32"))]
             gl::AttachShader(ID, geometry);
             gl::LinkProgram(ID);
             shader.checkCompileErrors(ID, "PROGRAM");
             // delete the shaders as they're linked into our program now and no longer necessary
             gl::DeleteShader(vertex);
             gl::DeleteShader(fragment);
+                #[cfg(not(target_arch = "wasm32"))]
             gl::DeleteShader(geometry);
             shader.ID = ID;
         }
