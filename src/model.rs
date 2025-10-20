@@ -42,6 +42,27 @@ impl Model {
 
         // retrieve the directory path of the filepath
         self.directory = path.parent().unwrap_or_else(|| Path::new("")).to_str().unwrap().into();
+        
+        // Load model file using XHR (WASM-compatible)
+        #[cfg(target_arch = "wasm32")]
+        let obj = {
+            use gl::resources::load_bytes_sync;
+            let bytes = load_bytes_sync(path.to_str().unwrap()).unwrap();
+            let cursor = std::io::Cursor::new(&bytes[..]);
+            tobj::load_obj_buf(&mut std::io::BufReader::new(cursor), |material_path| {
+                // Load MTL file for materials
+                let mtl_path = path.parent().unwrap().join(material_path).to_str().unwrap().to_string();
+                match load_bytes_sync(&mtl_path) {
+                    Ok(mtl_bytes) => {
+                        let mut mtl_cursor = std::io::Cursor::new(&mtl_bytes[..]);
+                        tobj::load_mtl_buf(&mut mtl_cursor)
+                    },
+                    Err(_) => Ok(Default::default())
+                }
+            })
+        };
+        
+        #[cfg(not(target_arch = "wasm32"))]
         let obj = tobj::load_obj(path);
 
         let (models, materials) = obj.unwrap();

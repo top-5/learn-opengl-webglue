@@ -313,6 +313,15 @@ unsafe fn loadCubemap(faces: &[&str]) -> u32 {
     gl::BindTexture(gl::TEXTURE_CUBE_MAP, textureID);
 
     for (i, face) in faces.iter().enumerate() {
+        // Load cubemap face using XHR (WASM-compatible)
+        #[cfg(target_arch = "wasm32")]
+        let img = {
+            use gl::resources::load_bytes_sync;
+            let bytes = load_bytes_sync(face).expect("Failed to load cubemap bytes");
+            image::load_from_memory(&bytes).expect("Cubemap texture failed to load")
+        };
+        
+        #[cfg(not(target_arch = "wasm32"))]
         let img = image::open(&Path::new(face)).expect("Cubemap texture failed to load");
 
         let data = img.raw_pixels();

@@ -11,7 +11,13 @@ image = "0.19.0"
 # only needed from chapter 3 on
 tobj = "0.1.6"
 num = "0.2.0"
-rand = "0.5.5"
+# Updated to 0.8 for WASM support with getrandom
+rand = "0.8"
+# Enable random number generation in WASM via browser crypto API
+getrandom = { version = "0.2", features = ["js"] }
+# WASM async support for RAF-based rendering
+wasm-bindgen-futures = "0.4"
+futures = "0.3"
 
 [features]
 default = [

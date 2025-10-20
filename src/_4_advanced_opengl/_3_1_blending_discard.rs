@@ -295,6 +295,16 @@ pub unsafe fn loadTexture(path: &str) -> u32 {
     let mut textureID = 0;
 
     gl::GenTextures(1, &mut textureID);
+    
+    // Load texture using XHR (WASM-compatible)
+    #[cfg(target_arch = "wasm32")]
+    let img = {
+        use gl::resources::load_bytes_sync;
+        let bytes = load_bytes_sync(path).expect("Failed to load texture bytes");
+        image::load_from_memory(&bytes).expect("Texture failed to load")
+    };
+    
+    #[cfg(not(target_arch = "wasm32"))]
     let img = image::open(&Path::new(path)).expect("Texture failed to load");
     let format = match img {
         ImageLuma8(_) => gl::RED,

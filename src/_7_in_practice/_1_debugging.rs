@@ -219,7 +219,21 @@ pub fn main_7_1() {
         let mut texture = 0;
         gl::GenTextures(1, &mut texture);
         gl::BindTexture(gl::TEXTURE_2D, texture);
+        #[cfg(not(target_arch = "wasm32"))]
+
         let img = image::open(&Path::new("resources/textures/wood.png")).expect("Failed to load texture");
+
+        #[cfg(target_arch = "wasm32")]
+
+        let img = {
+
+            use gl::resources::load_bytes_sync;
+
+            let bytes = load_bytes_sync("resources/textures/wood.png").expect("Failed to load texture");
+
+            image::load_from_memory(&bytes).expect("Failed to decode texture")
+
+        };
         let data = img.raw_pixels();
         gl::TexImage2D(gl::TEXTURE_2D,
                        0,

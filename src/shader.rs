@@ -124,7 +124,7 @@ impl Shader {
                 println!("ERROR::SHADER_COMPILATION_ERROR of type: {}\n{}\n \
                           -- --------------------------------------------------- -- ",
                          type_,
-                         str::from_utf8(&infoLog).unwrap());
+                         String::from_utf8_lossy(&infoLog));
             }
 
         } else {
@@ -134,7 +134,7 @@ impl Shader {
                 println!("ERROR::PROGRAM_LINKING_ERROR of type: {}\n{}\n \
                           -- --------------------------------------------------- -- ",
                          type_,
-                         str::from_utf8(&infoLog).unwrap());
+                         String::from_utf8_lossy(&infoLog));
             }
         }
 

@@ -1,9 +1,8 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
-/// Common code that the original tutorials repeat over and over and over and over
+/// Common code for WASM-only webglue examples
 
 use std::os::raw::c_void;
-use std::path::Path;
 use std::sync::mpsc::Receiver;
 
 use gl;
@@ -76,23 +75,16 @@ pub fn processInput(window: &mut glfw::Window, deltaTime: f32, camera: &mut Came
     }
 }
 
-/// utility function for loading a 2D texture from file
+/// utility function for loading a 2D texture from file (WASM-only)
 /// ---------------------------------------------------
 #[allow(dead_code)]
 pub unsafe fn loadTexture(path: &str) -> u32 {
     let mut textureID = 0;
-
     gl::GenTextures(1, &mut textureID);
     
-    #[cfg(not(target_arch = "wasm32"))]
-    let img = image::open(&Path::new(path)).expect("Texture failed to load");
-    
-    #[cfg(target_arch = "wasm32")]
-    let img = {
-        use gl::resources::load_bytes_sync;
-        let bytes = load_bytes_sync(path).expect("Texture failed to load");
-        image::load_from_memory(&bytes).expect("Failed to decode texture")
-    };
+    use gl::resources::load_bytes_sync;
+    let bytes = load_bytes_sync(path).expect("Texture failed to load");
+    let img = image::load_from_memory(&bytes).expect("Failed to decode texture");
     
     let format = match img {
         ImageLuma8(_) => gl::RED,
@@ -114,4 +106,28 @@ pub unsafe fn loadTexture(path: &str) -> u32 {
     gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
 
     textureID
+}
+
+/// Macro to help create example state storage
+#[macro_export]
+macro_rules! example_state {
+    ($name:ident { $($field:ident : $ty:ty),* $(,)? }) => {
+        struct $name {
+            initialized: bool,
+            $($field: Option<$ty>,)*
+        }
+
+        impl $name {
+            fn new() -> Self {
+                Self {
+                    initialized: false,
+                    $($field: None,)*
+                }
+            }
+        }
+
+        thread_local! {
+            static STATE: RefCell<$name> = RefCell::new($name::new());
+        }
+    };
 }

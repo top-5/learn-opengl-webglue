@@ -143,19 +143,19 @@ impl Mesh {
         let size = size_of::<Vertex>() as i32;
         // vertex Positions
         gl::EnableVertexAttribArray(0);
-        gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, size, offset_of!(Vertex, Position) as *const c_void);
+        gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, size, std::mem::offset_of!(Vertex, Position) as *const c_void);
         // vertex normals
         gl::EnableVertexAttribArray(1);
-        gl::VertexAttribPointer(1, 3, gl::FLOAT, gl::FALSE, size, offset_of!(Vertex, Normal) as *const c_void);
+        gl::VertexAttribPointer(1, 3, gl::FLOAT, gl::FALSE, size, std::mem::offset_of!(Vertex, Normal) as *const c_void);
         // vertex texture coords
         gl::EnableVertexAttribArray(2);
-        gl::VertexAttribPointer(2, 2, gl::FLOAT, gl::FALSE, size, offset_of!(Vertex, TexCoords) as *const c_void);
+        gl::VertexAttribPointer(2, 2, gl::FLOAT, gl::FALSE, size, std::mem::offset_of!(Vertex, TexCoords) as *const c_void);
         // vertex tangent
         gl::EnableVertexAttribArray(3);
-        gl::VertexAttribPointer(3, 3, gl::FLOAT, gl::FALSE, size, offset_of!(Vertex, Tangent) as *const c_void);
+        gl::VertexAttribPointer(3, 3, gl::FLOAT, gl::FALSE, size, std::mem::offset_of!(Vertex, Tangent) as *const c_void);
         // vertex bitangent
         gl::EnableVertexAttribArray(4);
-        gl::VertexAttribPointer(4, 3, gl::FLOAT, gl::FALSE, size, offset_of!(Vertex, Bitangent) as *const c_void);
+        gl::VertexAttribPointer(4, 3, gl::FLOAT, gl::FALSE, size, std::mem::offset_of!(Vertex, Bitangent) as *const c_void);
 
         gl::BindVertexArray(0);
     }

@@ -238,7 +238,11 @@ pub unsafe fn loadTexture(path: &str, gammaCorrection: bool) -> u32 {
     let mut textureID = 0;
 
     gl::GenTextures(1, &mut textureID);
-    let img = image::open(&Path::new(path)).expect("Texture failed to load");
+    
+    // Load texture via XHR for WASM compatibility
+    let bytes = gl::resources::load_bytes_sync(path).expect("Failed to load texture");
+    let img = image::load_from_memory(&bytes).expect("Texture failed to load");
+    
     // need two different formats for gamma correction
     let (internalFormat, dataFormat) = match img {
         ImageLuma8(_) => (gl::RED, gl::RED),
