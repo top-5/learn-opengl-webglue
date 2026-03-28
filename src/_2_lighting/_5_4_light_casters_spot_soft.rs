@@ -10,8 +10,9 @@ use std::ptr;
 use std::mem;
 use std::os::raw::c_void;
 use std::ffi::CStr;
+use std::cell::RefCell;
 
-use common::{process_events, processInput, loadTexture};
+use common::{process_events, loadTexture};
 use shader::Shader;
 use camera::Camera;
 
@@ -22,259 +23,190 @@ use cgmath::prelude::*;
 const SCR_WIDTH: u32 = 800;
 const SCR_HEIGHT: u32 = 600;
 
-pub fn main_2_5_4() {
-    let mut camera = Camera {
-        Position: Point3::new(0.0, 0.0, 3.0),
-        ..Camera::default()
-    };
+struct State_2_5_4 {
+    shader: Shader,
+    vbo: u32,
+    cube_vao: u32,
+    light_vao: u32,
+    diffuse_map: u32,
+    specular_map: u32,
+    cube_positions: Vec<Vector3<f32>>,
+}
 
-    let mut firstMouse = true;
-    let mut lastX: f32 = SCR_WIDTH as f32 / 2.0;
-    let mut lastY: f32 = SCR_HEIGHT as f32 / 2.0;
+thread_local! {
+    static STATE: RefCell<Option<State_2_5_4>> = RefCell::new(None);
+}
 
-    // timing
-    let mut deltaTime: f32; // time between current frame and last frame
-    let mut lastFrame: f32 = 0.0;
+pub unsafe fn reset_2_5_4() {
+    STATE.with(|state| {
+        if let Some(s) = state.borrow_mut().take() {
+            gl::DeleteVertexArrays(1, &s.cube_vao);
+            gl::DeleteVertexArrays(1, &s.light_vao);
+            gl::DeleteBuffers(1, &s.vbo);
+        }
+    });
+}
 
-    // glfw: initialize and configure
-    // ------------------------------
-    let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
-    glfw.window_hint(glfw::WindowHint::ContextVersion(3, 3));
-    glfw.window_hint(glfw::WindowHint::OpenGlProfile(glfw::OpenGlProfileHint::Core));
-    #[cfg(target_os = "macos")]
-    glfw.window_hint(glfw::WindowHint::OpenGlForwardCompat(true));
+unsafe fn init_2_5_4() {
+    gl::Enable(gl::DEPTH_TEST);
 
-    // glfw window creation
-    // --------------------
-    let (mut window, events) = glfw.create_window(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", glfw::WindowMode::Windowed)
-        .expect("Failed to create GLFW window");
+    let shader = Shader::new(
+        "src/_2_lighting/shaders/5.4.light_casters.vs",
+        "src/_2_lighting/shaders/5.4.light_casters.fs");
 
-    window.make_current();
-    window.set_framebuffer_size_polling(true);
-    window.set_cursor_pos_polling(true);
-    window.set_scroll_polling(true);
+    let vertices: [f32; 288] = [
+        -0.5, -0.5, -0.5,  0.0,  0.0, -1.0,  0.0,  0.0,
+         0.5, -0.5, -0.5,  0.0,  0.0, -1.0,  1.0,  0.0,
+         0.5,  0.5, -0.5,  0.0,  0.0, -1.0,  1.0,  1.0,
+         0.5,  0.5, -0.5,  0.0,  0.0, -1.0,  1.0,  1.0,
+        -0.5,  0.5, -0.5,  0.0,  0.0, -1.0,  0.0,  1.0,
+        -0.5, -0.5, -0.5,  0.0,  0.0, -1.0,  0.0,  0.0,
 
-    // tell GLFW to capture our mouse
-    window.set_cursor_mode(glfw::CursorMode::Disabled);
+        -0.5, -0.5,  0.5,  0.0,  0.0,  1.0,  0.0,  0.0,
+         0.5, -0.5,  0.5,  0.0,  0.0,  1.0,  1.0,  0.0,
+         0.5,  0.5,  0.5,  0.0,  0.0,  1.0,  1.0,  1.0,
+         0.5,  0.5,  0.5,  0.0,  0.0,  1.0,  1.0,  1.0,
+        -0.5,  0.5,  0.5,  0.0,  0.0,  1.0,  0.0,  1.0,
+        -0.5, -0.5,  0.5,  0.0,  0.0,  1.0,  0.0,  0.0,
 
-    // gl: load all OpenGL function pointers
-    // ---------------------------------------
-    gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
+        -0.5,  0.5,  0.5, -1.0,  0.0,  0.0,  1.0,  0.0,
+        -0.5,  0.5, -0.5, -1.0,  0.0,  0.0,  1.0,  1.0,
+        -0.5, -0.5, -0.5, -1.0,  0.0,  0.0,  0.0,  1.0,
+        -0.5, -0.5, -0.5, -1.0,  0.0,  0.0,  0.0,  1.0,
+        -0.5, -0.5,  0.5, -1.0,  0.0,  0.0,  0.0,  0.0,
+        -0.5,  0.5,  0.5, -1.0,  0.0,  0.0,  1.0,  0.0,
 
-    let (lightingShader, VBO, cubeVAO, lightVAO, diffuseMap, specularMap, cubePositions) = unsafe {
-        // configure global opengl state
-        // -----------------------------
-        gl::Enable(gl::DEPTH_TEST);
+         0.5,  0.5,  0.5,  1.0,  0.0,  0.0,  1.0,  0.0,
+         0.5,  0.5, -0.5,  1.0,  0.0,  0.0,  1.0,  1.0,
+         0.5, -0.5, -0.5,  1.0,  0.0,  0.0,  0.0,  1.0,
+         0.5, -0.5, -0.5,  1.0,  0.0,  0.0,  0.0,  1.0,
+         0.5, -0.5,  0.5,  1.0,  0.0,  0.0,  0.0,  0.0,
+         0.5,  0.5,  0.5,  1.0,  0.0,  0.0,  1.0,  0.0,
 
-        // build and compile our shader program
-        // ------------------------------------
-        let lightingShader = Shader::new(
-            "src/_2_lighting/shaders/5.4.light_casters.vs",
-            "src/_2_lighting/shaders/5.4.light_casters.fs");
-        // let lampShader = Shader::new("src/_2_lighting/shaders/5.4.lamp.vs", "src/_2_lighting/shaders/5.4.lamp.fs");
+        -0.5, -0.5, -0.5,  0.0, -1.0,  0.0,  0.0,  1.0,
+         0.5, -0.5, -0.5,  0.0, -1.0,  0.0,  1.0,  1.0,
+         0.5, -0.5,  0.5,  0.0, -1.0,  0.0,  1.0,  0.0,
+         0.5, -0.5,  0.5,  0.0, -1.0,  0.0,  1.0,  0.0,
+        -0.5, -0.5,  0.5,  0.0, -1.0,  0.0,  0.0,  0.0,
+        -0.5, -0.5, -0.5,  0.0, -1.0,  0.0,  0.0,  1.0,
 
-        // set up vertex data (and buffer(s)) and configure vertex attributes
-        // ------------------------------------------------------------------
-        let vertices: [f32; 288] = [
-            // positions       // normals        // texture coords
-            -0.5, -0.5, -0.5,  0.0,  0.0, -1.0,  0.0,  0.0,
-             0.5, -0.5, -0.5,  0.0,  0.0, -1.0,  1.0,  0.0,
-             0.5,  0.5, -0.5,  0.0,  0.0, -1.0,  1.0,  1.0,
-             0.5,  0.5, -0.5,  0.0,  0.0, -1.0,  1.0,  1.0,
-            -0.5,  0.5, -0.5,  0.0,  0.0, -1.0,  0.0,  1.0,
-            -0.5, -0.5, -0.5,  0.0,  0.0, -1.0,  0.0,  0.0,
+        -0.5,  0.5, -0.5,  0.0,  1.0,  0.0,  0.0,  1.0,
+         0.5,  0.5, -0.5,  0.0,  1.0,  0.0,  1.0,  1.0,
+         0.5,  0.5,  0.5,  0.0,  1.0,  0.0,  1.0,  0.0,
+         0.5,  0.5,  0.5,  0.0,  1.0,  0.0,  1.0,  0.0,
+        -0.5,  0.5,  0.5,  0.0,  1.0,  0.0,  0.0,  0.0,
+        -0.5,  0.5, -0.5,  0.0,  1.0,  0.0,  0.0,  1.0
+    ];
 
-            -0.5, -0.5,  0.5,  0.0,  0.0,  1.0,  0.0,  0.0,
-             0.5, -0.5,  0.5,  0.0,  0.0,  1.0,  1.0,  0.0,
-             0.5,  0.5,  0.5,  0.0,  0.0,  1.0,  1.0,  1.0,
-             0.5,  0.5,  0.5,  0.0,  0.0,  1.0,  1.0,  1.0,
-            -0.5,  0.5,  0.5,  0.0,  0.0,  1.0,  0.0,  1.0,
-            -0.5, -0.5,  0.5,  0.0,  0.0,  1.0,  0.0,  0.0,
+    let cube_positions = vec![
+        vec3( 0.0,  0.0,  0.0),
+        vec3( 2.0,  5.0, -15.0),
+        vec3(-1.5, -2.2, -2.5),
+        vec3(-3.8, -2.0, -12.3),
+        vec3( 2.4, -0.4, -3.5),
+        vec3(-1.7,  3.0, -7.5),
+        vec3( 1.3, -2.0, -2.5),
+        vec3( 1.5,  2.0, -2.5),
+        vec3( 1.5,  0.2, -1.5),
+        vec3(-1.3,  1.0, -1.5)
+    ];
 
-            -0.5,  0.5,  0.5, -1.0,  0.0,  0.0,  1.0,  0.0,
-            -0.5,  0.5, -0.5, -1.0,  0.0,  0.0,  1.0,  1.0,
-            -0.5, -0.5, -0.5, -1.0,  0.0,  0.0,  0.0,  1.0,
-            -0.5, -0.5, -0.5, -1.0,  0.0,  0.0,  0.0,  1.0,
-            -0.5, -0.5,  0.5, -1.0,  0.0,  0.0,  0.0,  0.0,
-            -0.5,  0.5,  0.5, -1.0,  0.0,  0.0,  1.0,  0.0,
+    let (mut vbo, mut cube_vao) = (0, 0);
+    gl::GenVertexArrays(1, &mut cube_vao);
+    gl::GenBuffers(1, &mut vbo);
 
-             0.5,  0.5,  0.5,  1.0,  0.0,  0.0,  1.0,  0.0,
-             0.5,  0.5, -0.5,  1.0,  0.0,  0.0,  1.0,  1.0,
-             0.5, -0.5, -0.5,  1.0,  0.0,  0.0,  0.0,  1.0,
-             0.5, -0.5, -0.5,  1.0,  0.0,  0.0,  0.0,  1.0,
-             0.5, -0.5,  0.5,  1.0,  0.0,  0.0,  0.0,  0.0,
-             0.5,  0.5,  0.5,  1.0,  0.0,  0.0,  1.0,  0.0,
+    gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+    gl::BufferData(gl::ARRAY_BUFFER,
+                   (vertices.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
+                   &vertices[0] as *const f32 as *const c_void,
+                   gl::STATIC_DRAW);
 
-            -0.5, -0.5, -0.5,  0.0, -1.0,  0.0,  0.0,  1.0,
-             0.5, -0.5, -0.5,  0.0, -1.0,  0.0,  1.0,  1.0,
-             0.5, -0.5,  0.5,  0.0, -1.0,  0.0,  1.0,  0.0,
-             0.5, -0.5,  0.5,  0.0, -1.0,  0.0,  1.0,  0.0,
-            -0.5, -0.5,  0.5,  0.0, -1.0,  0.0,  0.0,  0.0,
-            -0.5, -0.5, -0.5,  0.0, -1.0,  0.0,  0.0,  1.0,
+    gl::BindVertexArray(cube_vao);
+    let stride = 8 * mem::size_of::<GLfloat>() as GLsizei;
+    gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, stride, ptr::null());
+    gl::EnableVertexAttribArray(0);
+    gl::VertexAttribPointer(1, 3, gl::FLOAT, gl::FALSE, stride, (3 * mem::size_of::<GLfloat>()) as *const c_void);
+    gl::EnableVertexAttribArray(1);
+    gl::VertexAttribPointer(2, 2, gl::FLOAT, gl::FALSE, stride, (6 * mem::size_of::<GLfloat>()) as *const c_void);
+    gl::EnableVertexAttribArray(2);
 
-            -0.5,  0.5, -0.5,  0.0,  1.0,  0.0,  0.0,  1.0,
-             0.5,  0.5, -0.5,  0.0,  1.0,  0.0,  1.0,  1.0,
-             0.5,  0.5,  0.5,  0.0,  1.0,  0.0,  1.0,  0.0,
-             0.5,  0.5,  0.5,  0.0,  1.0,  0.0,  1.0,  0.0,
-            -0.5,  0.5,  0.5,  0.0,  1.0,  0.0,  0.0,  0.0,
-            -0.5,  0.5, -0.5,  0.0,  1.0,  0.0,  0.0,  1.0
-        ];
-        // positions all containers
-        let cubePositions: [Vector3<f32>; 10] = [
-            vec3( 0.0,  0.0,  0.0),
-            vec3( 2.0,  5.0, -15.0),
-            vec3(-1.5, -2.2, -2.5),
-            vec3(-3.8, -2.0, -12.3),
-            vec3( 2.4, -0.4, -3.5),
-            vec3(-1.7,  3.0, -7.5),
-            vec3( 1.3, -2.0, -2.5),
-            vec3( 1.5,  2.0, -2.5),
-            vec3( 1.5,  0.2, -1.5),
-            vec3(-1.3,  1.0, -1.5)
-        ];
-        // first, configure the cube's VAO (and VBO)
-        let (mut VBO, mut cubeVAO) = (0, 0);
-        gl::GenVertexArrays(1, &mut cubeVAO);
-        gl::GenBuffers(1, &mut VBO);
+    let mut light_vao = 0;
+    gl::GenVertexArrays(1, &mut light_vao);
+    gl::BindVertexArray(light_vao);
+    gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+    gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, stride, ptr::null());
+    gl::EnableVertexAttribArray(0);
 
-        gl::BindBuffer(gl::ARRAY_BUFFER, VBO);
-        gl::BufferData(gl::ARRAY_BUFFER,
-                       (vertices.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
-                       &vertices[0] as *const f32 as *const c_void,
-                       gl::STATIC_DRAW);
+    let diffuse_map = loadTexture("resources/textures/container2.png");
+    let specular_map = loadTexture("resources/textures/container2_specular.png");
 
-        gl::BindVertexArray(cubeVAO);
-        let stride = 8 * mem::size_of::<GLfloat>() as GLsizei;
-        gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, stride, ptr::null());
-        gl::EnableVertexAttribArray(0);
-        gl::VertexAttribPointer(1, 3, gl::FLOAT, gl::FALSE, stride, (3 * mem::size_of::<GLfloat>()) as *const c_void);
-        gl::EnableVertexAttribArray(1);
-        gl::VertexAttribPointer(2, 2, gl::FLOAT, gl::FALSE, stride, (6 * mem::size_of::<GLfloat>()) as *const c_void);
-        gl::EnableVertexAttribArray(2);
+    shader.useProgram();
+    shader.setInt(c_str!("material.diffuse"), 0);
+    shader.setInt(c_str!("material.specular"), 1);
 
-        // second, configure the light's VAO (VBO stays the same; the vertices are the same for the light object which is also a 3D cube)
-        let mut lightVAO = 0;
-        gl::GenVertexArrays(1, &mut lightVAO);
-        gl::BindVertexArray(lightVAO);
+    STATE.with(|state| {
+        *state.borrow_mut() = Some(State_2_5_4 {
+            shader,
+            vbo,
+            cube_vao,
+            light_vao,
+            diffuse_map,
+            specular_map,
+            cube_positions,
+        });
+    });
+}
 
-        gl::BindBuffer(gl::ARRAY_BUFFER, VBO);
-        // note that we update the lamp's position attribute's stride to reflect the updated buffer data
-        gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, stride, ptr::null());
-        gl::EnableVertexAttribArray(0);
-
-        // load textures (we now use a utility function to keep the code more organized)
-        // -----------------------------------------------------------------------------
-        let diffuseMap = loadTexture("resources/textures/container2.png");
-        let specularMap = loadTexture("resources/textures/container2_specular.png");
-
-        // shader configuration
-        // --------------------
-        lightingShader.useProgram();
-        lightingShader.setInt(c_str!("material.diffuse"), 0);
-        lightingShader.setInt(c_str!("material.specular"), 1);
-
-        (lightingShader, VBO, cubeVAO, lightVAO, diffuseMap, specularMap, cubePositions)
-    };
-
-
-    // render loop
-    // -----------
-    while !window.should_close() {
-        // per-frame time logic
-        // --------------------
-        let currentFrame = glfw.get_time() as f32;
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
-
-        // events
-        // -----
-        process_events(&events, &mut firstMouse, &mut lastX, &mut lastY, &mut camera);
-
-        // input
-        // -----
-        processInput(&mut window, deltaTime, &mut camera);
-
-
-        // render
-        // ------
-        unsafe {
+unsafe fn render_2_5_4(camera: &Camera) {
+    STATE.with(|state| {
+        if let Some(s) = state.borrow().as_ref() {
             gl::ClearColor(0.1, 0.1, 0.1, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
-            // be sure to activate shader when setting uniforms/drawing objects
-            lightingShader.useProgram();
-            lightingShader.setVector3(c_str!("light.position"), &camera.Position.to_vec());
-            lightingShader.setVector3(c_str!("light.direction"), &camera.Front);
-            lightingShader.setFloat(c_str!("light.cutOff"), 12.5f32.to_radians().cos());
-            lightingShader.setFloat(c_str!("light.outerCutOff"), 17.5f32.to_radians().cos());
-            lightingShader.setVector3(c_str!("viewPos"), &camera.Position.to_vec());
+            s.shader.useProgram();
+            s.shader.setVec3(c_str!("light.position"), camera.Position.x, camera.Position.y, camera.Position.z);
+            s.shader.setVector3(c_str!("light.direction"), &camera.Front);
+            s.shader.setFloat(c_str!("light.cutOff"), 12.5f32.to_radians().cos());
+            s.shader.setFloat(c_str!("light.outerCutOff"), 17.5f32.to_radians().cos());
+            s.shader.setVec3(c_str!("viewPos"), camera.Position.x, camera.Position.y, camera.Position.z);
 
-            // light properties
-            lightingShader.setVec3(c_str!("light.ambient"), 0.1, 0.1, 0.1);
-            // we configure the diffuse intensity slightly higher; the right lighting conditions differ with each lighting method and environment.
-            // each environment and lighting type requires some tweaking to get the best out of your environment.
-            lightingShader.setVec3(c_str!("light.diffuse"), 0.8, 0.8, 0.8);
-            lightingShader.setVec3(c_str!("light.specular"), 1.0, 1.0, 1.0);
-            lightingShader.setFloat(c_str!("light.constant"), 1.0);
-            lightingShader.setFloat(c_str!("light.linear"), 0.09);
-            lightingShader.setFloat(c_str!("light.quadratic"), 0.032);
+            s.shader.setVec3(c_str!("light.ambient"), 0.1, 0.1, 0.1);
+            s.shader.setVec3(c_str!("light.diffuse"), 0.8, 0.8, 0.8);
+            s.shader.setVec3(c_str!("light.specular"), 1.0, 1.0, 1.0);
+            s.shader.setFloat(c_str!("light.constant"), 1.0);
+            s.shader.setFloat(c_str!("light.linear"), 0.09);
+            s.shader.setFloat(c_str!("light.quadratic"), 0.032);
 
-            // material properties
-            lightingShader.setFloat(c_str!("material.shininess"), 32.0);
+            s.shader.setFloat(c_str!("material.shininess"), 32.0);
 
-            // view/projection transformations
             let projection: Matrix4<f32> = perspective(Deg(camera.Zoom), SCR_WIDTH as f32 / SCR_HEIGHT as f32, 0.1, 100.0);
             let view = camera.GetViewMatrix();
-            lightingShader.setMat4(c_str!("projection"), &projection);
-            lightingShader.setMat4(c_str!("view"), &view);
+            s.shader.setMat4(c_str!("projection"), &projection);
+            s.shader.setMat4(c_str!("view"), &view);
 
-            // world transformation
-            let model = Matrix4::<f32>::identity();
-            lightingShader.setMat4(c_str!("model"), &model);
-
-            // bind diffuse map
             gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, diffuseMap);
-            // bind specular map
+            gl::BindTexture(gl::TEXTURE_2D, s.diffuse_map);
             gl::ActiveTexture(gl::TEXTURE1);
-            gl::BindTexture(gl::TEXTURE_2D, specularMap);
+            gl::BindTexture(gl::TEXTURE_2D, s.specular_map);
 
-            // render containers
-            gl::BindVertexArray(cubeVAO);
-            for (i, position) in cubePositions.iter().enumerate() {
-                // calculate the model matrix for each object and pass it to shader before drawing
+            gl::BindVertexArray(s.cube_vao);
+            for (i, position) in s.cube_positions.iter().enumerate() {
                 let mut model: Matrix4<f32> = Matrix4::from_translation(*position);
                 let angle = 20.0 * i as f32;
-                // don't forget to normalize the axis!
                 model = model * Matrix4::from_axis_angle(vec3(1.0, 0.3, 0.5).normalize(), Deg(angle));
-                lightingShader.setMat4(c_str!("model"), &model);
-
+                s.shader.setMat4(c_str!("model"), &model);
                 gl::DrawArrays(gl::TRIANGLES, 0, 36);
             }
-
-            // again, a lamp object is weird when we only have a spot light, don't render the light object
-            // lampShader.useProgram();
-            // lampShader.setMat4(c_str!("projection"), &projection);
-            // lampShader.setMat4(c_str!("view"), &view);
-            // model = Matrix4::from_translation(lightPos);
-            // model = model * Matrix4::from_scale(0.2);  // a smaller cube
-            // lampShader.setMat4(c_str!("model"), &model);
-
-            // gl::BindVertexArray(lightVAO);
-            // gl::DrawArrays(gl::TRIANGLES, 0, 36);
         }
-
-        // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
-        // -------------------------------------------------------------------------------
-        window.swap_buffers();
-        glfw.poll_events();
-    }
-
-    // optional: de-allocate all resources once they've outlived their purpose:
-    // ------------------------------------------------------------------------
-    unsafe {
-        gl::DeleteVertexArrays(1, &cubeVAO);
-        gl::DeleteVertexArrays(1, &lightVAO);
-        gl::DeleteBuffers(1, &VBO);
-    }
+    });
 }
+
+pub fn main_2_5_4() {
+    STATE.with(|state| {
+        if state.borrow().is_none() {
+            unsafe { init_2_5_4(); }
+        }
+    });
+    unsafe { render_2_5_4(&Camera::default()); }
+}
+

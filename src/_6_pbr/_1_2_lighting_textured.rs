@@ -201,7 +201,7 @@ pub fn main_6_1_2() {
 
 }
 
-pub unsafe fn renderSphere(sphereVAO: &mut u32, indexCount: &mut u32) {
+unsafe fn renderSphere(sphereVAO: &mut u32, indexCount: &mut u32) {
     if *sphereVAO == 0 {
         gl::GenVertexArrays(1, sphereVAO);
 

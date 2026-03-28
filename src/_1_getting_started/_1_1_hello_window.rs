@@ -34,6 +34,12 @@ pub fn main_1_1_1() {
     // render loop
     // -----------
     while !window.should_close() {
+        // Clear to show an empty window (WASM needs this)
+        unsafe {
+            gl::ClearColor(0.2, 0.3, 0.3, 1.0);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+        }
+
         // events
         // -----
         process_events(&mut window, &events);

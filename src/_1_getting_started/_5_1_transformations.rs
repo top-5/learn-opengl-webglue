@@ -1,15 +1,11 @@
 #![allow(non_upper_case_globals)]
-extern crate glfw;
-use self::glfw::{Context, Key, Action};
-
 extern crate gl;
 use self::gl::types::*;
 
-use std::sync::mpsc::Receiver;
+use std::cell::RefCell;
 use std::ptr;
 use std::mem;
 use std::os::raw::c_void;
-use std::path::Path;
 use std::ffi::CStr;
 
 use shader::Shader;
@@ -17,37 +13,27 @@ use shader::Shader;
 use image;
 use image::GenericImage;
 
-use cgmath::{Matrix4, vec3,  Rad};
+use cgmath::{Matrix4, vec3, Rad};
 use cgmath::prelude::*;
 
 // settings
 const SCR_WIDTH: u32 = 800;
 const SCR_HEIGHT: u32 = 600;
 
-#[allow(non_snake_case)]
-pub fn main_1_5_1() {
-    // glfw: initialize and configure
-    // ------------------------------
-    let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
-    glfw.window_hint(glfw::WindowHint::ContextVersion(3, 3));
-    glfw.window_hint(glfw::WindowHint::OpenGlProfile(glfw::OpenGlProfileHint::Core));
-    #[cfg(target_os = "macos")]
-    glfw.window_hint(glfw::WindowHint::OpenGlForwardCompat(true));
+struct State_5_1 {
+    shader: Shader,
+    vao: GLuint,
+    vbo: GLuint,
+    ebo: GLuint,
+    texture1: GLuint,
+    texture2: GLuint,
+}
 
-    // glfw window creation
-    // --------------------
-    let (mut window, events) = glfw.create_window(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", glfw::WindowMode::Windowed)
-        .expect("Failed to create GLFW window");
+thread_local! {
+    static STATE: RefCell<Option<State_5_1>> = RefCell::new(None);
+}
 
-    window.make_current();
-    window.set_key_polling(true);
-    window.set_framebuffer_size_polling(true);
-
-    // gl: load all OpenGL function pointers
-    // ---------------------------------------
-    gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
-
-    let (ourShader, VBO, VAO, EBO, texture1, texture2) = unsafe {
+unsafe fn init_5_1() {
         // build and compile our shader program
         // ------------------------------------
         let ourShader = Shader::new(
@@ -166,7 +152,7 @@ pub fn main_1_5_1() {
         // note that the awesomeface.png has transparency and thus an alpha channel, so make sure to tell OpenGL the data type is of GL_RGBA
         gl::TexImage2D(gl::TEXTURE_2D,
                        0,
-                       gl::RGB as i32,
+                       gl::RGBA as i32,
                        img.width() as i32,
                        img.height() as i32,
                        0,
@@ -175,74 +161,80 @@ pub fn main_1_5_1() {
                        &data[0] as *const u8 as *const c_void);
         gl::GenerateMipmap(gl::TEXTURE_2D);
 
-        // tell opengl for each sampler to which texture unit it belongs to (only has to be done once)
-        // -------------------------------------------------------------------------------------------
-        ourShader.useProgram();
-        ourShader.setInt(c_str!("texture1"), 0);
-        ourShader.setInt(c_str!("texture2"), 1);
+    // tell opengl for each sampler to which texture unit it belongs to
+    ourShader.useProgram();
+    ourShader.setInt(c_str!("texture1"), 0);
+    ourShader.setInt(c_str!("texture2"), 1);
 
-        (ourShader, VBO, VAO, EBO, texture1, texture2)
-    };
+    STATE.with(|state| {
+        *state.borrow_mut() = Some(State_5_1 {
+            shader: ourShader,
+            vao: VAO,
+            vbo: VBO,
+            ebo: EBO,
+            texture1,
+            texture2,
+        });
+    });
+}
 
-    // render loop
-    // -----------
-    while !window.should_close() {
-        // events
-        // -----
-        process_events(&mut window, &events);
+unsafe fn render_5_1(time: f64) {
+    gl::ClearColor(0.2, 0.3, 0.3, 1.0);
+    gl::Clear(gl::COLOR_BUFFER_BIT);
 
-        // render
-        // ------
-        unsafe {
-            gl::ClearColor(0.2, 0.3, 0.3, 1.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT);
-
+    STATE.with(|state| {
+        if let Some(s) = state.borrow().as_ref() {
             // bind textures on corresponding texture units
             gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, texture1);
+            gl::BindTexture(gl::TEXTURE_2D, s.texture1);
             gl::ActiveTexture(gl::TEXTURE1);
-            gl::BindTexture(gl::TEXTURE_2D, texture2);
+            gl::BindTexture(gl::TEXTURE_2D, s.texture2);
 
             // create transformations
             let mut transform: Matrix4<f32> = Matrix4::identity();
             transform = transform * Matrix4::<f32>::from_translation(vec3(0.5, -0.5, 0.0));
-            transform = transform * Matrix4::<f32>::from_angle_z(Rad(glfw.get_time() as f32));
+            transform = transform * Matrix4::<f32>::from_angle_z(Rad(time as f32));
 
             // get matrix's uniform location and set matrix
-            ourShader.useProgram();
-            let transformLoc = gl::GetUniformLocation(ourShader.ID, c_str!("transform").as_ptr());
+            s.shader.useProgram();
+            let transformLoc = gl::GetUniformLocation(s.shader.ID, c_str!("transform").as_ptr());
             gl::UniformMatrix4fv(transformLoc, 1, gl::FALSE, transform.as_ptr());
 
             // render container
-            gl::BindVertexArray(VAO);
+            gl::BindVertexArray(s.vao);
             gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
         }
-
-        // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
-        // -------------------------------------------------------------------------------
-        window.swap_buffers();
-        glfw.poll_events();
-    }
-
-    // optional: de-allocate all resources once they've outlived their purpose:
-    // ------------------------------------------------------------------------
-    unsafe {
-        gl::DeleteVertexArrays(1, &VAO);
-        gl::DeleteBuffers(1, &VBO);
-        gl::DeleteBuffers(1, &EBO);
-    }
+    });
 }
 
-fn process_events(window: &mut glfw::Window, events: &Receiver<(f64, glfw::WindowEvent)>) {
-    for (_, event) in glfw::flush_messages(events) {
-        match event {
-            glfw::WindowEvent::FramebufferSize(width, height) => {
-                // make sure the viewport matches the new window dimensions; note that width and
-                // height will be significantly larger than specified on retina displays.
-                unsafe { gl::Viewport(0, 0, width, height) }
-            }
-            glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => window.set_should_close(true),
-            _ => {}
+unsafe fn reset_5_1() {
+    STATE.with(|state| {
+        if let Some(s) = state.borrow_mut().take() {
+            gl::DeleteVertexArrays(1, &s.vao);
+            gl::DeleteBuffers(1, &s.vbo);
+            gl::DeleteBuffers(1, &s.ebo);
+            gl::DeleteTextures(1, &s.texture1);
+            gl::DeleteTextures(1, &s.texture2);
         }
-    }
+    });
+}
+
+#[allow(non_snake_case)]
+pub fn main_1_5_1() {
+    STATE.with(|state| {
+        if state.borrow().is_none() {
+            unsafe { init_5_1(); }
+        }
+    });
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let time = 0.0;
+
+    #[cfg(target_arch = "wasm32")]
+    let time = {
+        use gl::glfw;
+        glfw::get_time()
+    };
+
+    unsafe { render_5_1(time); }
 }

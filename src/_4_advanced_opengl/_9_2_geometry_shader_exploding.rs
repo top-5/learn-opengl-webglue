@@ -2,15 +2,14 @@
 #![allow(non_snake_case)]
 
 use std::ffi::CStr;
+use std::cell::RefCell;
 
 extern crate glfw;
-use self::glfw::Context;
 
 extern crate gl;
 
-use cgmath::{Matrix4, Deg, vec3, Point3, perspective};
+use cgmath::{Matrix4, Deg, vec3, perspective};
 
-use common::{process_events, processInput};
 use shader::Shader;
 use camera::Camera;
 use model::Model;
@@ -19,108 +18,81 @@ use model::Model;
 const SCR_WIDTH: u32 = 1280;
 const SCR_HEIGHT: u32 = 720;
 
-pub fn main_4_9_2() {
-    let mut camera = Camera {
-        Position: Point3::new(0.0, 0.0, 3.0),
-        ..Camera::default()
-    };
+struct State_4_9_2 {
+    shader: Shader,
+    nanoSuit: Model,
+    time: f32,
+}
 
-    let mut firstMouse = true;
-    let mut lastX: f32 = SCR_WIDTH as f32 / 2.0;
-    let mut lastY: f32 = SCR_HEIGHT as f32 / 2.0;
+thread_local! {
+    static STATE: RefCell<Option<State_4_9_2>> = RefCell::new(None);
+}
 
-    // timing
-    let mut deltaTime: f32; // time between current frame and last frame
-    let mut lastFrame: f32 = 0.0;
+unsafe fn reset_4_9_2() {
+    STATE.with(|state| {
+        if let Some(_s) = state.borrow_mut().take() {
+            // Model cleanup handled by Drop
+        }
+    });
+}
 
-    // glfw: initialize and configure
-    // ------------------------------
-    let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
-    glfw.window_hint(glfw::WindowHint::ContextVersion(3, 3));
-    glfw.window_hint(glfw::WindowHint::OpenGlProfile(glfw::OpenGlProfileHint::Core));
-    #[cfg(target_os = "macos")]
-    glfw.window_hint(glfw::WindowHint::OpenGlForwardCompat(true));
+unsafe fn init_4_9_2() {
+    // configure global opengl state
+    gl::Enable(gl::DEPTH_TEST);
 
-    // glfw window creation
-    // --------------------
-    let (mut window, events) = glfw.create_window(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", glfw::WindowMode::Windowed)
-        .expect("Failed to create GLFW window");
+    // build and compile shaders
+    let shader = Shader::with_geometry_shader(
+        "src/_4_advanced_opengl/shaders/9.2.geometry_shader.vs",
+        "src/_4_advanced_opengl/shaders/9.2.geometry_shader.fs",
+        "src/_4_advanced_opengl/shaders/9.2.geometry_shader.gs"
+    );
 
-    window.make_current();
-    window.set_framebuffer_size_polling(true);
-    window.set_cursor_pos_polling(true);
-    window.set_scroll_polling(true);
+    // load models
+    let nanoSuit = Model::new("resources/objects/nanosuit/nanosuit.obj");
 
-    // tell GLFW to capture our mouse
-    window.set_cursor_mode(glfw::CursorMode::Disabled);
+    STATE.with(|state| {
+        *state.borrow_mut() = Some(State_4_9_2 {
+            shader,
+            nanoSuit,
+            time: 0.0,
+        });
+    });
+}
 
-    // gl: load all OpenGL function pointers
-    // ---------------------------------------
-    gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
+unsafe fn render_4_9_2(camera: &Camera) {
+    gl::ClearColor(0.1, 0.1, 0.1, 1.0);
+    gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
-    let (shader, nanoSuit) = unsafe {
-        // configure global opengl state
-        // -----------------------------
-        gl::Enable(gl::DEPTH_TEST);
-
-        // build and compile shaders
-        // -------------------------
-        let shader = Shader::with_geometry_shader(
-            "src/_4_advanced_opengl/shaders/9.2.geometry_shader.vs",
-            "src/_4_advanced_opengl/shaders/9.2.geometry_shader.fs",
-            "src/_4_advanced_opengl/shaders/9.2.geometry_shader.gs"
-        );
-
-        // load models
-        // -----------
-        let nanoSuit = Model::new("resources/objects/nanosuit/nanosuit.obj");
-
-        (shader, nanoSuit)
-    };
-
-    // render loop
-    // -----------
-    while !window.should_close() {
-        // per-frame time logic
-        // --------------------
-        let currentFrame = glfw.get_time() as f32;
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
-
-        // events
-        // -----
-        process_events(&events, &mut firstMouse, &mut lastX, &mut lastY, &mut camera);
-
-        // input
-        // -----
-        processInput(&mut window, deltaTime, &mut camera);
-
-        // render
-        // ------
-        unsafe {
-            gl::ClearColor(0.1, 0.1, 0.1, 1.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+    STATE.with(|state| {
+        if let Some(ref mut s) = *state.borrow_mut() {
+            // Update time
+            s.time += 0.016; // ~60fps
 
             // configure transformation matrices
-            let projection: Matrix4<f32> = perspective(Deg(45.0), SCR_WIDTH as f32 / SCR_HEIGHT as f32, 0.1, 100.0);
+            let projection: Matrix4<f32> = perspective(Deg(camera.Zoom), SCR_WIDTH as f32 / SCR_HEIGHT as f32, 0.1, 100.0);
             let view = camera.GetViewMatrix();
-            let mut model = Matrix4::<f32>::from_translation(vec3(0.0, -1.75, 0.0)); // translate it down so it's at the center of the scene
-            model = model * Matrix4::from_scale(0.2);  // it's a bit too big for our scene, so scale it down
-            shader.useProgram();
-            shader.setMat4(c_str!("projection"), &projection);
-            shader.setMat4(c_str!("view"), &view);
-            shader.setMat4(c_str!("model"), &model);
+            let mut model = Matrix4::<f32>::from_translation(vec3(0.0, -1.75, 0.0));
+            model = model * Matrix4::from_scale(0.2);
+            
+            s.shader.useProgram();
+            s.shader.setMat4(c_str!("projection"), &projection);
+            s.shader.setMat4(c_str!("view"), &view);
+            s.shader.setMat4(c_str!("model"), &model);
 
-            // add time component to geometry shader in the form of a uniform
-            shader.setFloat(c_str!("time"), glfw.get_time() as f32);
+            // add time component to geometry shader
+            s.shader.setFloat(c_str!("time"), s.time);
 
             // draw model
-            nanoSuit.Draw(&shader);
+            s.nanoSuit.Draw(&s.shader);
         }
+    });
+}
 
-        // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
-        // -------------------------------------------------------------------------------
-        window.swap_buffers();
-        glfw.poll_events();
-    }
+pub fn main_4_9_2() {
+    STATE.with(|state| {
+        if state.borrow().is_none() {
+            unsafe { init_4_9_2(); }
+        }
+    });
+    unsafe { render_4_9_2(&Camera::default()); }
 }

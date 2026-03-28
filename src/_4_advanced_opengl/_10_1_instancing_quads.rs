@@ -1,62 +1,53 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_snake_case)]
 
+use std::cell::RefCell;
 use std::ptr;
 use std::mem;
 use std::os::raw::c_void;
+use gl::types::*;
 
-extern crate glfw;
-use self::glfw::Context;
-
-extern crate gl;
-use self::gl::types::*;
-
-use cgmath::{Vector2};
+use cgmath::Vector2;
 
 extern crate num;
 use self::num::range_step;
 
 use shader::Shader;
+use camera::Camera;
 
-// settings
 const SCR_WIDTH: u32 = 1280;
 const SCR_HEIGHT: u32 = 720;
 
-pub fn main_4_10_1() {
-    // glfw: initialize and configure
-    // ------------------------------
-    let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
-    glfw.window_hint(glfw::WindowHint::ContextVersion(3, 3));
-    glfw.window_hint(glfw::WindowHint::OpenGlProfile(glfw::OpenGlProfileHint::Core));
-    #[cfg(target_os = "macos")]
-    glfw.window_hint(glfw::WindowHint::OpenGlForwardCompat(true));
+struct State_4_10_1 {
+    shader: Shader,
+    quadVAO: GLuint,
+    quadVBO: GLuint,
+    instanceVBO: GLuint,
+}
 
-    // glfw window creation
-    // --------------------
-    let (mut window, _events) = glfw.create_window(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", glfw::WindowMode::Windowed)
-        .expect("Failed to create GLFW window");
+thread_local! {
+    static STATE: RefCell<Option<State_4_10_1>> = RefCell::new(None);
+}
 
-    window.make_current();
-    window.set_framebuffer_size_polling(true);
+unsafe fn reset_4_10_1() {
+    STATE.with(|state| {
+        if let Some(s) = state.borrow_mut().take() {
+            gl::DeleteVertexArrays(1, &s.quadVAO);
+            gl::DeleteBuffers(1, &s.quadVBO);
+            gl::DeleteBuffers(1, &s.instanceVBO);
+        }
+    });
+}
 
-    // gl: load all OpenGL function pointers
-    // ---------------------------------------
-    gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
+unsafe fn init_4_10_1() {
+    gl::Enable(gl::DEPTH_TEST);
 
-    let (shader, quadVAO, quadVBO) = unsafe {
-        // configure global opengl state
-        // -----------------------------
-        gl::Enable(gl::DEPTH_TEST);
+    let shader = Shader::new(
+        "src/_4_advanced_opengl/shaders/10.1.instancing.vs",
+        "src/_4_advanced_opengl/shaders/10.1.instancing.fs",
+    );
 
-        // build and compile shaders
-        // -------------------------
-        let shader = Shader::new(
-            "src/_4_advanced_opengl/shaders/10.1.instancing.vs",
-            "src/_4_advanced_opengl/shaders/10.1.instancing.fs",
-        );
-
-        // generate a list of 100 quad locations/translation-vectors
-        // ---------------------------------------------------------
+    // generate 100 quad translations
         let mut translations = vec![];
         let offset = 0.1;
         for y in range_step(-10, 10, 2) {
@@ -113,35 +104,40 @@ pub fn main_4_10_1() {
         gl::BindBuffer(gl::ARRAY_BUFFER, 0);
         gl::VertexAttribDivisor(2, 1); // tell OpenGL this is an instanced vertex attribute.
 
-        (shader, quadVAO, quadVBO)
-    };
+        STATE.with(|state| {
+            *state.borrow_mut() = Some(State_4_10_1 {
+                shader,
+                quadVAO,
+                quadVBO,
+                instanceVBO,
+            });
+        });
+}
 
-    // render loop
-    // -----------
-    while !window.should_close() {
-        // render
-        // ------
-        unsafe {
-            gl::ClearColor(0.1, 0.1, 0.1, 1.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+unsafe fn render_4_10_1(_camera: &Camera) {
+    gl::ClearColor(0.1, 0.1, 0.1, 1.0);
+    gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
-            // draw 100 instanced quads
-            shader.useProgram();
-            gl::BindVertexArray(quadVAO);
-            gl::DrawArraysInstanced(gl::TRIANGLES, 0, 6, 100); // 100 triangles of 6 vertices each
+    STATE.with(|state| {
+        if let Some(ref s) = *state.borrow() {
+            s.shader.useProgram();
+            gl::BindVertexArray(s.quadVAO);
+            gl::DrawArraysInstanced(gl::TRIANGLES, 0, 6, 100);
             gl::BindVertexArray(0);
         }
+    });
+}
 
-        // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
-        // -------------------------------------------------------------------------------
-        window.swap_buffers();
-        glfw.poll_events();
-    }
+pub fn main_4_10_1() {
+    STATE.with(|state| {
+        if state.borrow().is_none() {
+            unsafe {
+                init_4_10_1();
+            }
+        }
+    });
 
-        // optional: de-allocate all resources once they've outlived their purpose:
-    // ------------------------------------------------------------------------
     unsafe {
-        gl::DeleteVertexArrays(1, &quadVAO);
-        gl::DeleteBuffers(1, &quadVBO);
+        render_4_10_1(&Camera::default());
     }
 }

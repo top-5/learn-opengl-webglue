@@ -5,6 +5,7 @@ use self::glfw::{Context, Key, Action};
 extern crate gl;
 use self::gl::types::*;
 
+use std::cell::RefCell;
 use std::sync::mpsc::Receiver;
 use std::ffi::CString;
 use std::ptr;
@@ -40,154 +41,129 @@ const fragmentShader2Source: &str = r#"
     }
 "#;
 
-#[allow(non_snake_case)]
-pub fn main_1_2_5() {
-    // glfw: initialize and configure
-    // ------------------------------
-    let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
-    glfw.window_hint(glfw::WindowHint::ContextVersion(3, 3));
-    glfw.window_hint(glfw::WindowHint::OpenGlProfile(glfw::OpenGlProfileHint::Core));
-    #[cfg(target_os = "macos")]
-    glfw.window_hint(glfw::WindowHint::OpenGlForwardCompat(true));
-
-    // glfw window creation
-    // --------------------
-    let (mut window, events) = glfw.create_window(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", glfw::WindowMode::Windowed)
-        .expect("Failed to create GLFW window");
-
-    window.make_current();
-    window.set_key_polling(true);
-    window.set_framebuffer_size_polling(true);
-
-    // gl: load all OpenGL function pointers
-    // ---------------------------------------
-    gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
-
-    let (shaderProgramOrange, shaderProgramYellow, mut VBOs, mut VAOs) = unsafe {
-        // build and compile our shader program
-        // ------------------------------------
-        // // we skipped compile log checks this time for readability (if you do encounter issues, add the compile-checks! see previous code samples)
-        let vertexShader = gl::CreateShader(gl::VERTEX_SHADER);
-        let fragmentShaderOrange = gl::CreateShader(gl::FRAGMENT_SHADER); // the first fragment shader that outputs the color orange
-        let fragmentShaderYellow = gl::CreateShader(gl::FRAGMENT_SHADER); // the second fragment shader that outputs the color yellow
-        let shaderProgramOrange = gl::CreateProgram();
-        let shaderProgramYellow = gl::CreateProgram(); // the second shader program
-        let c_str_vert = CString::new(vertexShaderSource.as_bytes()).unwrap();
-        gl::ShaderSource(vertexShader, 1, &c_str_vert.as_ptr(), ptr::null());
-        gl::CompileShader(vertexShader);
-        let c_str_frag_orange = CString::new(fragmentShaderSource.as_bytes()).unwrap();
-        gl::ShaderSource(fragmentShaderOrange, 1, &c_str_frag_orange.as_ptr(), ptr::null());
-        gl::CompileShader(fragmentShaderOrange);
-        let c_str_frag_yellow = CString::new(fragmentShader2Source.as_bytes()).unwrap();
-        gl::ShaderSource(fragmentShaderYellow, 1, &c_str_frag_yellow.as_ptr(), ptr::null());
-        gl::CompileShader(fragmentShaderYellow);
-        // link the first program object
-        gl::AttachShader(shaderProgramOrange, vertexShader);
-        gl::AttachShader(shaderProgramOrange, fragmentShaderOrange);
-        gl::LinkProgram(shaderProgramOrange);
-        // then link the second program object using a different fragment shader (but same vertex shader)
-        // this is perfectly allowed since the inputs and outputs of both the vertex and fragment shaders are equally matched.
-        gl::AttachShader(shaderProgramYellow, vertexShader);
-        gl::AttachShader(shaderProgramYellow, fragmentShaderYellow);
-        gl::LinkProgram(shaderProgramYellow);
-
-        // set up vertex data (and buffer(s)) and configure vertex attributes
-        // ------------------------------------------------------------------
-        let firstTriangle: [f32; 9] = [
-            -0.9, -0.5, 0.0,  // left
-            -0.0, -0.5, 0.0,  // right
-            -0.45, 0.5, 0.0,  // top
-        ];
-        let secondTriangle: [f32; 9] = [
-            0.0, -0.5, 0.0,  // left
-            0.9, -0.5, 0.0,  // right
-            0.45, 0.5, 0.0   // top
-        ];
-        let (mut VBOs, mut VAOs) = ([0, 0], [0, 0]);
-        gl::GenVertexArrays(2, VAOs.as_mut_ptr()); // we can also generate multiple VAOs or buffers at the same time
-        gl::GenBuffers(2, VBOs.as_mut_ptr());
-        // first triangle setup
-        // --------------------
-        gl::BindVertexArray(VAOs[0]);
-        gl::BindBuffer(gl::ARRAY_BUFFER, VBOs[0]);
-        // Vertex attributes stay the same
-        gl::BufferData(gl::ARRAY_BUFFER,
-                       (firstTriangle.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
-                       &firstTriangle[0] as *const f32 as *const c_void,
-                       gl::STATIC_DRAW);
-
-        gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 3 * mem::size_of::<GLfloat>() as GLsizei, ptr::null());
-        gl::EnableVertexAttribArray(0);
-        // gl::BindVertexArray(0); // no need to unbind at all as we directly bind a different VAO the next few lines
-        // second triangle setup
-        // ---------------------
-        gl::BindVertexArray(VAOs[1]);
-        gl::BindBuffer(gl::ARRAY_BUFFER, VBOs[1]);
-        gl::BufferData(gl::ARRAY_BUFFER,
-                       (secondTriangle.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
-                       &secondTriangle[0] as *const f32 as *const c_void,
-                       gl::STATIC_DRAW);
-
-        gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, ptr::null()); // because the vertex data is tightly packed we can also specify 0 as the vertex attribute's stride to let OpenGL figure it out
-        gl::EnableVertexAttribArray(0);
-        // gl::BindVertexArray(0); // not really necessary as well, but beware of calls that could affect VAOs while this one is bound (like binding element buffer objects, or enabling/disabling vertex attributes)
-
-        // uncomment this call to draw in wireframe polygons.
-        // gl::PolygonMode(gl::FRONT_AND_BACK, gl::LINE);
-
-        (shaderProgramOrange, shaderProgramYellow, VBOs, VAOs)
-    };
-
-    // render loop
-    // -----------
-    while !window.should_close() {
-        // events
-        // -----
-        process_events(&mut window, &events);
-
-        // render
-        // ------
-        unsafe {
-            gl::ClearColor(0.2, 0.3, 0.3, 1.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT);
-
-            // now when we draw the triangle we first use the vertex and orange fragment shader from the first program
-            gl::UseProgram(shaderProgramOrange);
-            // draw the first triangle using the data from our first VAO
-            gl::BindVertexArray(VAOs[0]);
-            gl::DrawArrays(gl::TRIANGLES, 0, 3); // this call should output an orange triangle
-            // then we draw the second triangle using the data from the second VAO
-            // when we draw the second triangle we want to use a different shader program so we switch to the shader program with our yellow fragment shader.
-            gl::UseProgram(shaderProgramYellow);
-            gl::BindVertexArray(VAOs[1]);
-            gl::DrawArrays(gl::TRIANGLES, 0, 3);
-        }
-
-        // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
-        // -------------------------------------------------------------------------------
-        window.swap_buffers();
-        glfw.poll_events();
-    }
-
-    // optional: de-allocate all resources once they've outlived their purpose:
-    // ------------------------------------------------------------------------
-    unsafe {
-        gl::DeleteVertexArrays(2, VAOs.as_mut_ptr());
-        gl::DeleteBuffers(2, VBOs.as_mut_ptr());
-    }
+struct State_2_5 {
+    shader_program_orange: GLuint,
+    shader_program_yellow: GLuint,
+    vaos: [GLuint; 2],
+    vbos: [GLuint; 2],
 }
 
-// NOTE: not the same version as in common.rs!
-fn process_events(window: &mut glfw::Window, events: &Receiver<(f64, glfw::WindowEvent)>) {
-    for (_, event) in glfw::flush_messages(events) {
-        match event {
-            glfw::WindowEvent::FramebufferSize(width, height) => {
-                // make sure the viewport matches the new window dimensions; note that width and
-                // height will be significantly larger than specified on retina displays.
-                unsafe { gl::Viewport(0, 0, width, height) }
-            }
-            glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => window.set_should_close(true),
-            _ => {}
+thread_local! {
+    static STATE: RefCell<Option<State_2_5>> = RefCell::new(None);
+}
+
+unsafe fn reset_2_5() {
+    STATE.with(|state| {
+        if let Some(s) = state.borrow_mut().take() {
+            gl::DeleteVertexArrays(2, s.vaos.as_ptr());
+            gl::DeleteBuffers(2, s.vbos.as_ptr());
+            gl::DeleteProgram(s.shader_program_orange);
+            gl::DeleteProgram(s.shader_program_yellow);
         }
-    }
+    });
+}
+
+unsafe fn init_2_5() {
+    // Compile shaders
+    let vertexShader = gl::CreateShader(gl::VERTEX_SHADER);
+    let fragmentShaderOrange = gl::CreateShader(gl::FRAGMENT_SHADER);
+    let fragmentShaderYellow = gl::CreateShader(gl::FRAGMENT_SHADER);
+
+    let c_str_vert = CString::new(vertexShaderSource.as_bytes()).unwrap();
+    gl::ShaderSource(vertexShader, 1, &c_str_vert.as_ptr(), ptr::null());
+    gl::CompileShader(vertexShader);
+
+    let c_str_frag_orange = CString::new(fragmentShaderSource.as_bytes()).unwrap();
+    gl::ShaderSource(fragmentShaderOrange, 1, &c_str_frag_orange.as_ptr(), ptr::null());
+    gl::CompileShader(fragmentShaderOrange);
+
+    let c_str_frag_yellow = CString::new(fragmentShader2Source.as_bytes()).unwrap();
+    gl::ShaderSource(fragmentShaderYellow, 1, &c_str_frag_yellow.as_ptr(), ptr::null());
+    gl::CompileShader(fragmentShaderYellow);
+
+    // Link first program (orange)
+    let shaderProgramOrange = gl::CreateProgram();
+    gl::AttachShader(shaderProgramOrange, vertexShader);
+    gl::AttachShader(shaderProgramOrange, fragmentShaderOrange);
+    gl::LinkProgram(shaderProgramOrange);
+
+    // Link second program (yellow)
+    let shaderProgramYellow = gl::CreateProgram();
+    gl::AttachShader(shaderProgramYellow, vertexShader);
+    gl::AttachShader(shaderProgramYellow, fragmentShaderYellow);
+    gl::LinkProgram(shaderProgramYellow);
+
+    // Vertex data
+    let firstTriangle: [f32; 9] = [
+        -0.9, -0.5, 0.0,
+        -0.0, -0.5, 0.0,
+        -0.45, 0.5, 0.0,
+    ];
+    let secondTriangle: [f32; 9] = [
+        0.0, -0.5, 0.0,
+        0.9, -0.5, 0.0,
+        0.45, 0.5, 0.0
+    ];
+
+    let (mut VBOs, mut VAOs) = ([0, 0], [0, 0]);
+    gl::GenVertexArrays(2, VAOs.as_mut_ptr());
+    gl::GenBuffers(2, VBOs.as_mut_ptr());
+
+    // First triangle setup
+    gl::BindVertexArray(VAOs[0]);
+    gl::BindBuffer(gl::ARRAY_BUFFER, VBOs[0]);
+    gl::BufferData(gl::ARRAY_BUFFER,
+                   (firstTriangle.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
+                   &firstTriangle[0] as *const f32 as *const c_void,
+                   gl::STATIC_DRAW);
+    gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 3 * mem::size_of::<GLfloat>() as GLsizei, ptr::null());
+    gl::EnableVertexAttribArray(0);
+
+    // Second triangle setup
+    gl::BindVertexArray(VAOs[1]);
+    gl::BindBuffer(gl::ARRAY_BUFFER, VBOs[1]);
+    gl::BufferData(gl::ARRAY_BUFFER,
+                   (secondTriangle.len() * mem::size_of::<GLfloat>()) as GLsizeiptr,
+                   &secondTriangle[0] as *const f32 as *const c_void,
+                   gl::STATIC_DRAW);
+    gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, ptr::null());
+    gl::EnableVertexAttribArray(0);
+
+    STATE.with(|state| {
+        *state.borrow_mut() = Some(State_2_5 {
+            shader_program_orange: shaderProgramOrange,
+            shader_program_yellow: shaderProgramYellow,
+            vaos: VAOs,
+            vbos: VBOs,
+        });
+    });
+}
+
+unsafe fn render_2_5() {
+    gl::ClearColor(0.2, 0.3, 0.3, 1.0);
+    gl::Clear(gl::COLOR_BUFFER_BIT);
+
+    STATE.with(|state| {
+        if let Some(ref s) = *state.borrow() {
+            // Draw first triangle with orange shader
+            gl::UseProgram(s.shader_program_orange);
+            gl::BindVertexArray(s.vaos[0]);
+            gl::DrawArrays(gl::TRIANGLES, 0, 3);
+            
+            // Draw second triangle with yellow shader
+            gl::UseProgram(s.shader_program_yellow);
+            gl::BindVertexArray(s.vaos[1]);
+            gl::DrawArrays(gl::TRIANGLES, 0, 3);
+        }
+    });
+}
+
+#[allow(non_snake_case)]
+pub fn main_1_2_5() {
+    STATE.with(|state| {
+        if state.borrow().is_none() {
+            unsafe { init_2_5(); }
+        }
+    });
+    unsafe { render_2_5(); }
 }

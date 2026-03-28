@@ -1,19 +1,16 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_snake_case)]
 
+use std::cell::RefCell;
 use std::ptr;
 use std::mem;
 use std::os::raw::c_void;
 
 extern crate glfw;
-use self::glfw::Context;
 
 extern crate gl;
 use self::gl::types::*;
 
-use cgmath::{Point3};
-
-use common::{process_events, processInput};
 use shader::Shader;
 use camera::Camera;
 
@@ -21,46 +18,24 @@ use camera::Camera;
 const SCR_WIDTH: u32 = 1280;
 const SCR_HEIGHT: u32 = 720;
 
-pub fn main_4_9_1() {
-    let mut camera = Camera {
-        Position: Point3::new(0.0, 0.0, 3.0),
-        ..Camera::default()
-    };
+struct State_4_9_1 {
+    shader: Shader,
+    vao: GLuint,
+}
 
-    let mut firstMouse = true;
-    let mut lastX: f32 = SCR_WIDTH as f32 / 2.0;
-    let mut lastY: f32 = SCR_HEIGHT as f32 / 2.0;
+thread_local! {
+    static STATE: RefCell<Option<State_4_9_1>> = RefCell::new(None);
+}
 
-    // timing
-    let mut deltaTime: f32; // time between current frame and last frame
-    let mut lastFrame: f32 = 0.0;
+unsafe fn reset_4_9_1() {
+    STATE.with(|state| {
+        if let Some(s) = state.borrow_mut().take() {
+            gl::DeleteVertexArrays(1, &s.vao);
+        }
+    });
+}
 
-    // glfw: initialize and configure
-    // ------------------------------
-    let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
-    glfw.window_hint(glfw::WindowHint::ContextVersion(3, 3));
-    glfw.window_hint(glfw::WindowHint::OpenGlProfile(glfw::OpenGlProfileHint::Core));
-    #[cfg(target_os = "macos")]
-    glfw.window_hint(glfw::WindowHint::OpenGlForwardCompat(true));
-
-    // glfw window creation
-    // --------------------
-    let (mut window, events) = glfw.create_window(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", glfw::WindowMode::Windowed)
-        .expect("Failed to create GLFW window");
-
-    window.make_current();
-    window.set_framebuffer_size_polling(true);
-    window.set_cursor_pos_polling(true);
-    window.set_scroll_polling(true);
-
-    // tell GLFW to capture our mouse
-    window.set_cursor_mode(glfw::CursorMode::Disabled);
-
-    // gl: load all OpenGL function pointers
-    // ---------------------------------------
-    gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
-
-    let (shader, VBO, VAO) = unsafe {
+unsafe fn init_4_9_1() {
         // configure global opengl state
         // -----------------------------
         gl::Enable(gl::DEPTH_TEST);
@@ -98,47 +73,32 @@ pub fn main_4_9_1() {
         gl::VertexAttribPointer(1, 3, gl::FLOAT, gl::FALSE, stride, (2 * mem::size_of::<GLfloat>()) as *const f32 as *const c_void);
         gl::BindVertexArray(0);
 
-        (shader, VBO, VAO)
-    };
+    STATE.with(|state| {
+        *state.borrow_mut() = Some(State_4_9_1 {
+            shader,
+            vao: VAO,
+        });
+    });
+}
 
-    // render loop
-    // -----------
-    while !window.should_close() {
-        // per-frame time logic
-        // --------------------
-        let currentFrame = glfw.get_time() as f32;
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
+unsafe fn render_4_9_1(_camera: &Camera) {
+    gl::ClearColor(0.1, 0.1, 0.1, 1.0);
+    gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
-        // events
-        // -----
-        process_events(&events, &mut firstMouse, &mut lastX, &mut lastY, &mut camera);
-
-        // input
-        // -----
-        processInput(&mut window, deltaTime, &mut camera);
-
-        // render
-        // ------
-        unsafe {
-            gl::ClearColor(0.1, 0.1, 0.1, 1.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
-
-            shader.useProgram();
-            gl::BindVertexArray(VAO);
+    STATE.with(|state| {
+        if let Some(ref s) = *state.borrow() {
+            s.shader.useProgram();
+            gl::BindVertexArray(s.vao);
             gl::DrawArrays(gl::POINTS, 0, 4);
         }
+    });
+}
 
-        // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
-        // -------------------------------------------------------------------------------
-        window.swap_buffers();
-        glfw.poll_events();
-    }
-
-    // optional: de-allocate all resources once they've outlived their purpose:
-    // ------------------------------------------------------------------------
-    unsafe {
-        gl::DeleteVertexArrays(1, &VAO);
-        gl::DeleteBuffers(1, &VBO);
-    }
+pub fn main_4_9_1() {
+    STATE.with(|state| {
+        if state.borrow().is_none() {
+            unsafe { init_4_9_1(); }
+        }
+    });
+    unsafe { render_4_9_1(&Camera::default()); }
 }

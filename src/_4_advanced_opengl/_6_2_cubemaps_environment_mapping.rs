@@ -1,88 +1,62 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_snake_case)]
 
+use std::cell::RefCell;
 use std::ptr;
 use std::mem;
 use std::os::raw::c_void;
 use std::path::Path;
 use std::ffi::CStr;
+use gl::types::*;
 
-extern crate glfw;
-use self::glfw::Context;
-
-extern crate gl;
-use self::gl::types::*;
-
-use cgmath::{Matrix4,  Deg, perspective, Point3};
+use cgmath::{Matrix4, Matrix3, Deg, perspective, Point3};
 use cgmath::prelude::*;
 
-use image;
 use image::GenericImage;
 
-use common::{process_events, processInput};
 use shader::Shader;
 use camera::Camera;
 
-// settings
 const SCR_WIDTH: u32 = 1280;
 const SCR_HEIGHT: u32 = 720;
 
-pub fn main_4_6_2() {
-    let mut camera = Camera {
-        Position: Point3::new(0.0, 0.0, 3.0),
-        ..Camera::default()
-    };
+struct State_4_6_2 {
+    shader: Shader,
+    skyboxShader: Shader,
+    cubeVAO: GLuint,
+    cubeVBO: GLuint,
+    skyboxVAO: GLuint,
+    skyboxVBO: GLuint,
+    cubemapTexture: GLuint,
+}
 
-    let mut firstMouse = true;
-    let mut lastX: f32 = SCR_WIDTH as f32 / 2.0;
-    let mut lastY: f32 = SCR_HEIGHT as f32 / 2.0;
+thread_local! {
+    static STATE: RefCell<Option<State_4_6_2>> = RefCell::new(None);
+}
 
-    // timing
-    let mut deltaTime: f32; // time between current frame and last frame
-    let mut lastFrame: f32 = 0.0;
+unsafe fn reset_4_6_2() {
+    STATE.with(|state| {
+        if let Some(s) = state.borrow_mut().take() {
+            gl::DeleteVertexArrays(1, &s.cubeVAO);
+            gl::DeleteVertexArrays(1, &s.skyboxVAO);
+            gl::DeleteBuffers(1, &s.cubeVBO);
+            gl::DeleteBuffers(1, &s.skyboxVBO);
+            gl::DeleteTextures(1, &s.cubemapTexture);
+        }
+    });
+}
 
-    // glfw: initialize and configure
-    // ------------------------------
-    let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
-    glfw.window_hint(glfw::WindowHint::ContextVersion(3, 3));
-    glfw.window_hint(glfw::WindowHint::OpenGlProfile(glfw::OpenGlProfileHint::Core));
-    #[cfg(target_os = "macos")]
-    glfw.window_hint(glfw::WindowHint::OpenGlForwardCompat(true));
+unsafe fn init_4_6_2() {
+    gl::Enable(gl::DEPTH_TEST);
 
-    // glfw window creation
-    // --------------------
-    let (mut window, events) = glfw.create_window(SCR_WIDTH, SCR_HEIGHT, "LearnOpenGL", glfw::WindowMode::Windowed)
-        .expect("Failed to create GLFW window");
+    let shader = Shader::new(
+        "src/_4_advanced_opengl/shaders/6.2.cubemaps.vs",
+        "src/_4_advanced_opengl/shaders/6.2.cubemaps.fs");
+    let skyboxShader = Shader::new(
+        "src/_4_advanced_opengl/shaders/6.2.skybox.vs",
+        "src/_4_advanced_opengl/shaders/6.2.skybox.fs");
 
-    window.make_current();
-    window.set_framebuffer_size_polling(true);
-    window.set_cursor_pos_polling(true);
-    window.set_scroll_polling(true);
-
-    // tell GLFW to capture our mouse
-    window.set_cursor_mode(glfw::CursorMode::Disabled);
-
-    // gl: load all OpenGL function pointers
-    // ---------------------------------------
-    gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
-
-    let (shader, skyboxShader, cubeVBO, cubeVAO, skyboxVBO, skyboxVAO, cubemapTexture) = unsafe {
-        // configure global opengl state
-        // -----------------------------
-        gl::Enable(gl::DEPTH_TEST);
-        gl::DepthFunc(gl::ALWAYS); // always pass the depth test (same effect as glDisable(GL_DEPTH_TEST))
-
-        // build and compile our shader program
-        // ------------------------------------
-        let shader = Shader::new(
-            "src/_4_advanced_opengl/shaders/6.2.cubemaps.vs",
-            "src/_4_advanced_opengl/shaders/6.2.cubemaps.fs");
-        let skyboxShader = Shader::new(
-            "src/_4_advanced_opengl/shaders/6.2.skybox.vs",
-            "src/_4_advanced_opengl/shaders/6.2.skybox.fs");
-
-        // set up vertex data (and buffer(s)) and configure vertex attributes
-        // ------------------------------------------------------------------
+    // set up vertex data
         let cubeVertices: [f32; 216] = [
             // positions       // normals
             -0.5, -0.5, -0.5,  0.0,  0.0, -1.0,
@@ -214,105 +188,88 @@ pub fn main_4_6_2() {
         let cubemapTexture = loadCubemap(&faces);
 
         // shader configuration
-        // --------------------
         shader.useProgram();
         shader.setInt(c_str!("skybox"), 0);
-
         skyboxShader.useProgram();
         skyboxShader.setInt(c_str!("skybox"), 0);
 
-        (shader, skyboxShader, cubeVBO, cubeVAO, skyboxVBO, skyboxVAO, cubemapTexture)
-    };
+        STATE.with(|state| {
+            *state.borrow_mut() = Some(State_4_6_2 {
+                shader,
+                skyboxShader,
+                cubeVAO,
+                cubeVBO,
+                skyboxVAO,
+                skyboxVBO,
+                cubemapTexture,
+            });
+        });
+}
 
-    // render loop
-    // -----------
-    while !window.should_close() {
-        // per-frame time logic
-        // --------------------
-        let currentFrame = glfw.get_time() as f32;
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
+unsafe fn render_4_6_2(camera: &Camera) {
+    gl::ClearColor(0.1, 0.1, 0.1, 1.0);
+    gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
-        // events
-        // -----
-        process_events(&events, &mut firstMouse, &mut lastX, &mut lastY, &mut camera);
+    STATE.with(|state| {
+        if let Some(ref s) = *state.borrow() {
+            let projection: Matrix4<f32> = perspective(Deg(camera.Zoom), SCR_WIDTH as f32 / SCR_HEIGHT as f32, 0.1, 100.0);
 
-        // input
-        // -----
-        processInput(&mut window, deltaTime, &mut camera);
-
-        // render
-        // ------
-        unsafe {
-            gl::ClearColor(0.1, 0.1, 0.1, 1.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
-
-            shader.useProgram();
+            // Render reflective cube
+            s.shader.useProgram();
             let model: Matrix4<f32> = Matrix4::identity();
-            let mut view = camera.GetViewMatrix();
-            let projection: Matrix4<f32> = perspective(Deg(camera.Zoom), SCR_WIDTH as f32 / SCR_HEIGHT as f32 , 0.1, 100.0);
-            shader.setMat4(c_str!("model"), &model);
-            shader.setMat4(c_str!("view"), &view);
-            shader.setMat4(c_str!("projection"), &projection);
-            shader.setVector3(c_str!("cameraPos"), &camera.Position.to_vec());
-            // cubes
-            gl::BindVertexArray(cubeVAO);
+            let view = camera.GetViewMatrix();
+            s.shader.setMat4(c_str!("model"), &model);
+            s.shader.setMat4(c_str!("view"), &view);
+            s.shader.setMat4(c_str!("projection"), &projection);
+            s.shader.setVector3(c_str!("cameraPos"), &camera.Position.to_vec());
+
+            gl::BindVertexArray(s.cubeVAO);
             gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_2D, cubemapTexture);
+            gl::BindTexture(gl::TEXTURE_CUBE_MAP, s.cubemapTexture);
             gl::DrawArrays(gl::TRIANGLES, 0, 36);
             gl::BindVertexArray(0);
 
-            // draw skybox as last
-            gl::DepthFunc(gl::LEQUAL);  // change depth function so depth test passes when values are equal to depth buffer's content
-            skyboxShader.useProgram();
-            // remove translation from the view matrix
-            view = camera.GetViewMatrix();
-            view.w[0] = 0.0;
-            view.w[1] = 0.0;
-            view.w[2] = 0.0;
-            skyboxShader.setMat4(c_str!("view"), &view);
-            skyboxShader.setMat4(c_str!("projection"), &projection);
-            // skybox cube
-            gl::BindVertexArray(skyboxVAO);
+            // Render skybox last
+            gl::DepthFunc(gl::LEQUAL);
+            s.skyboxShader.useProgram();
+
+            // Remove translation from view matrix
+            let skyboxView = Matrix3::from_cols(view.x.truncate(), view.y.truncate(), view.z.truncate());
+            let skyboxView4 = Matrix4::from(skyboxView);
+            
+            s.skyboxShader.setMat4(c_str!("view"), &skyboxView4);
+            s.skyboxShader.setMat4(c_str!("projection"), &projection);
+
+            gl::BindVertexArray(s.skyboxVAO);
             gl::ActiveTexture(gl::TEXTURE0);
-            gl::BindTexture(gl::TEXTURE_CUBE_MAP, cubemapTexture);
+            gl::BindTexture(gl::TEXTURE_CUBE_MAP, s.cubemapTexture);
             gl::DrawArrays(gl::TRIANGLES, 0, 36);
             gl::BindVertexArray(0);
-            gl::DepthFunc(gl::LESS); // set depth function back to default
+            gl::DepthFunc(gl::LESS);
         }
+    });
+}
 
-        // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
-        // -------------------------------------------------------------------------------
-        window.swap_buffers();
-        glfw.poll_events();
-    }
+pub fn main_4_6_2() {
+    STATE.with(|state| {
+        if state.borrow().is_none() {
+            unsafe {
+                init_4_6_2();
+            }
+        }
+    });
 
-    // optional: de-allocate all resources once they've outlived their purpose:
-    // ------------------------------------------------------------------------
     unsafe {
-        gl::DeleteVertexArrays(1, &cubeVAO);
-        gl::DeleteVertexArrays(1, &skyboxVAO);
-        gl::DeleteBuffers(1, &cubeVBO);
-        gl::DeleteBuffers(1, &skyboxVBO);
+        render_4_6_2(&Camera::default());
     }
 }
 
-/// loads a cubemap texture from 6 individual texture faces
-/// order:
-/// +X (right)
-/// -X (left)
-/// +Y (top)
-/// -Y (bottom)
-/// +Z (front)
-/// -Z (back)
-/// -------------------------------------------------------
 unsafe fn loadCubemap(faces: &[&str]) -> u32 {
     let mut textureID = 0;
     gl::GenTextures(1, &mut textureID);
     gl::BindTexture(gl::TEXTURE_CUBE_MAP, textureID);
 
     for (i, face) in faces.iter().enumerate() {
-        // Load cubemap face using XHR (WASM-compatible)
         #[cfg(target_arch = "wasm32")]
         let img = {
             use gl::resources::load_bytes_sync;
@@ -323,7 +280,7 @@ unsafe fn loadCubemap(faces: &[&str]) -> u32 {
         #[cfg(not(target_arch = "wasm32"))]
         let img = image::open(&Path::new(face)).expect("Cubemap texture failed to load");
 
-        let data = img.raw_pixels();
+        let data = img.to_rgb().into_raw();
         gl::TexImage2D(
             gl::TEXTURE_CUBE_MAP_POSITIVE_X + i as u32,
             0, gl::RGB as i32, img.width() as i32, img.height() as i32,
